@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en" ng-app="dashboardApp">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DashboardCreator —  • CSV/Excel Multi-Sheet</title>
+<script src="https://ajax.googleapis.com/ajax/libs/angularjs/1.8.3/angular.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body ng-controller="MainCtrl">
+<div class="header">
+  <div class="header-inner">
+    <h1>DashboardCreator</h1>
+    <p>CSV / Excel (multi-sheet) • Column/Row formatter • Dynamic charts • Full data + multi-filter bottom</p>
+  </div>
+</div>
+
+<div class="container">
+  <!-- UPLOAD -->
+  <div class="upload" ng-class="{dragover: dragOver}" ng-click="triggerUpload()"
+       ng-dragover="onDragOver($event)" ng-dragleave="dragOver=false" ng-drop="onDrop($event)">
+    <h3>📁 Drop CSV or Excel here or click to upload</h3>
+    <p>Supports <b>.csv, .xlsx, .xls</b> • Multiple sheets • Auto column types • 50MB max</p>
+    <div style="margin-top:10px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+      <span class="badge">CSV & Excel</span><span class="badge">Multi-sheet</span><span class="badge">Auto Charts</span><span class="badge">Dynamic Filters</span>
+    </div>
+    <input id="fileInput" type="file" accept=".csv,.xlsx,.xls,.xlsm" style="display:none" onchange="angular.element(this).scope().onFile(this.files[0])">
+    <div ng-if="uploading" style="margin-top:12px;color:#0ea5e9;font-weight:600">⏳ Uploading & parsing...</div>
+    <div ng-if="error" class="alert error">{{error}}</div>
+  </div>
+
+  <!-- FILE INFO + SHEETS -->
+  <div ng-if="fileId" style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+    <span class="badge">{{filename}} — {{currentSheet}}</span>
+    <span class="badge">{{rowCount}} rows × {{cols.length}} cols</span>
+    <span class="badge" ng-if="sheets.length>1">{{sheets.length}} sheets</span>
+    <button class="btn ghost sm" ng-click="clearAll()">Clear</button>
+    <button class="btn sm" ng-click="autoGenerate()">⚡ Auto Generate Dashboard</button>
+    <span class="badge" style="margin-left:auto" ng-if="charts.length">{{charts.length}} charts</span>
+  </div>
+
+  <div ng-if="sheets.length>1" class="sheet-bar">
+    <span style="font-size:12px;font-weight:700">Sheets:</span>
+    <button ng-repeat="s in sheets" class="sheet-btn" ng-class="{active: s.name===currentSheet}" ng-click="switchSheet(s.name)">
+      {{s.name}} <small>({{s.rows}}×{{s.cols}})</small>
+    </button>
+  </div>
+
+  <!-- MAIN LAYOUT -->
+  <div ng-if="fileId" class="layout">
+    <!-- LEFT: Columns -->
+    <div class="card">
+      <h3>Columns <span>{{cols.length}}</span></h3>
+      <div class="kpis">
+        <div class="kpi"><div class="v">{{rowCount}}</div><div class="l">Rows</div></div>
+        <div class="kpi"><div class="v">{{cols.length}}</div><div class="l">Columns</div></div>
+        <div class="kpi"><div class="v">{{catCount}}</div><div class="l">Categorical</div></div>
+      </div>
+      <div class="cols-list">
+        <div class="col-chip" ng-repeat="c in cols">
+          <div class="name" title="{{c}}">{{c}}</div>
+          <div class="meta">
+            <span class="type" ng-class="colTypes[c]">{{colTypes[c] | uppercase}}</span>
+            <span>{{uniqueCounts[c]}} unique</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CENTER: Dashboard -->
+    <div>
+      <div class="card" style="background:linear-gradient(135deg,#eff6ff,#eef2ff);border-color:#c7d2fe;margin-bottom:12px">
+        <h3>Dashboard Canvas <span>{{charts.length}} charts</span></h3>
+        <div style="font-size:12px;color:#475569">All charts rebuilt per sheet. Add via builder →</div>
+        <div style="margin-top:10px;display:flex;gap:8px">
+          <button class="btn sm" ng-click="scrollToBuilder()">+ Add Chart</button>
+          <button class="btn ghost sm" ng-click="charts=[]">Clear dashboard</button>
+        </div>
+      </div>
+      <div class="grid-dash">
+        <div class="chart-card" ng-repeat="ch in charts track by $index">
+          <h4>{{ch.title}} <small style="color:#64748b;font-weight:400">{{ch.sheet}}</small>
+            <span>
+              <button class="icon-btn" ng-click="removeChart($index)">✕</button>
+              <button class="icon-btn" ng-click="moveChart($index,-1)">↑</button>
+              <button class="icon-btn" ng-click="moveChart($index,1)">↓</button>
+            </span>
+          </h4>
+          <div class="chart-wrap" ng-class="{tall: ch.type==='hbar'}"><canvas id="{{ch.id}}"></canvas></div>
+        </div>
+      </div>
+      <div ng-if="!charts.length" class="empty">
+        <div style="font-size:28px">📊</div>
+        <div style="font-weight:600">No charts yet</div>
+        <div style="font-size:13px">Use builder on right or Auto Generate</div>
+      </div>
+    </div>
+
+    <!-- RIGHT: Builder -->
+    <div id="builder" class="card">
+      <h3>Chart Builder <span>Live</span></h3>
+      <label>Title</label><input class="input" ng-model="builder.title" placeholder="e.g., RCA Breakdown">
+      <label>Chart Type</label>
+      <select class="select" ng-model="builder.type" ng-change="previewChart()">
+        <option value="bar">Bar (vertical)</option>
+        <option value="hbar">Bar (horizontal)</option>
+        <option value="pie">Pie</option>
+        <option value="doughnut">Doughnut</option>
+        <option value="line">Line</option>
+      </select>
+      <label>X Axis — Column</label><select class="select" ng-model="builder.x" ng-options="c for c in cols" ng-change="onBuilderX()"></select>
+      <label>Y Aggregation</label>
+      <select class="select" ng-model="builder.agg" ng-change="previewChart()">
+        <option value="count">Count (rows per X)</option>
+        <option value="countDistinct">Count Distinct (Y)</option>
+        <option value="sum">Sum (Y numeric)</option>
+        <option value="avg">Average (Y numeric)</option>
+      </select>
+      <label>Y Column</label><select class="select" ng-model="builder.y" ng-options="c for c in cols"><option value="">— none —</option></select>
+      <label><input type="checkbox" ng-model="builder.sort" ng-change="previewChart()"> Sort descending</label>
+      <div style="margin-top:12px;display:flex;gap:8px">
+        <button class="btn" style="flex:1" ng-click="addChart()">+ Add to Dashboard</button>
+        <button class="btn ghost" ng-click="previewChart()">Preview</button>
+      </div>
+      <div style="margin-top:10px;border:1px solid var(--border);border-radius:10px;padding:10px;background:#f8fafc">
+        <div style="font-size:12px;font-weight:600">Live Preview</div>
+        <div class="chart-wrap" style="height:180px;margin-top:8px"><canvas id="preview"></canvas></div>
+      </div>
+      <div style="margin-top:12px;display:grid;gap:6px">
+        <button class="btn ghost sm" ng-click="quick(0,'pie')">Pie: First cat</button>
+        <button class="btn ghost sm" ng-click="quick(1,'bar')">Bar: Second cat</button>
+        <button class="btn ghost sm" ng-click="quick(0,'doughnut')">Doughnut: Top</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- BOTTOM: Full Data + Dynamic Multi-Filter -->
+  <div ng-if="fileId" class="card" style="margin-top:14px">
+    <h3>Full Data — After Charts <span>{{filtered.length}} / {{rawData.length}} rows</span></h3>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0">
+      <input class="input" ng-model="globalSearch" ng-change="applyFilters()" placeholder="Global search across all columns..." style="flex:1;min-width:240px">
+      <button class="btn sm" ng-click="addFilter()">+ Add Filter</button>
+      <button class="btn ghost sm" ng-click="clearFilters()">Clear Filters</button>
+      <button class="btn sm" ng-click="applyFilters()">🔍 Search</button>
+      <button class="btn ghost sm" ng-click="exportFiltered()">Export Filtered CSV</button>
+    </div>
+    <div class="chips" ng-if="filters.length">
+      <span class="badge" ng-repeat="f in filters" style="background:#eef2ff">{{f.col}}: {{f.selected.length ? (f.selected.length+' selected') : 'All'}}</span>
+    </div>
+    <div id="filterContainer">
+      <div class="filter-row" ng-repeat="f in filters track by $index">
+        <select class="select col-sel" ng-model="f.col" ng-options="c for c in cols" ng-change="onFilterColChange(f)" style="max-width:160px"></select>
+        <div class="ms" ng-init="f.open=false">
+          <div class="ms-display" ng-click="f.open=!f.open">{{f.selected.length ? f.selected.length+' selected' : 'All '+f.col+' ('+getUnique(f.col).length+')'}}</div>
+          <div class="ms-panel" ng-show="f.open" ng-click="$event.stopPropagation()">
+            <input class="input" ng-model="f.q" placeholder="Search values..." style="margin-bottom:6px;font-size:12px" ng-click="$event.stopPropagation()">
+            <label ng-repeat="v in getUnique(f.col) | filter:f.q | limitTo:80" style="display:flex;gap:8px;align-items:center;padding:6px 8px;border-radius:6px;cursor:pointer">
+              <input type="checkbox" ng-checked="f.selected.indexOf(v)>-1" ng-click="toggleFilterValue(f,v)"> <span>{{v}}</span> <small style="color:#64748b">({{countValue(f.col,v)}})</small>
+            </label>
+            <div style="display:flex;gap:6px;margin-top:6px">
+              <button class="btn ghost sm" ng-click="selectAll(f)">Select All</button>
+              <button class="btn ghost sm" ng-click="f.selected=[]; applyFilters()">Clear</button>
+            </div>
+          </div>
+        </div>
+        <button class="btn ghost sm" ng-click="removeFilter($index)">✕ Remove</button>
+      </div>
+    </div>
+    <div class="table-wrap" style="max-height:520px;margin-top:10px">
+      <table>
+        <thead><tr><th>#</th><th ng-repeat="c in cols" ng-click="sortBy(c)" style="cursor:pointer">{{c}} <span ng-if="sortCol===c">{{sortDir==='asc'?'▲':'▼'}}</span></th></tr></thead>
+        <tbody>
+          <tr ng-repeat="r in filtered | limitTo:1000 track by $index">
+            <td style="color:#64748b">{{$index+1}}</td>
+            <td ng-repeat="c in cols" title="{{r[c]}}">{{r[c] | limitTo:80}}</td>
+          </tr>
+          <tr ng-if="!filtered.length"><td colspan="{{cols.length+1}}" style="text-align:center;color:#64748b;padding:20px">No rows match filters</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div style="font-size:12px;color:var(--muted);margin-top:8px">{{filtered.length}} filtered / {{rawData.length}} total — showing up to 1000 rows • No pagination</div>
+  </div>
+
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
