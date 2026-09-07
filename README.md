@@ -37,6 +37,3 @@ python app.py
 - `static/index.html` — AngularJS `dashboardApp` + `MainCtrl`
 - `static/app.js` — controller, `Papa` not needed (backend parses), chart aggregation client-side from `rawData`
 - `static/style.css` — shared styles
-
-## Test with Wellsense file
-Upload `/home/thaleshi/Downloads/Wellsense Dev Analysis Sheet(WSU-to-CCB).csv` → Auto Generate → add filter `Comments: Can be taken as is` → export
